@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Saigon Runner PRO+</title>
+
+<style>
+body{margin:0;overflow:hidden;background:#000;font-family:sans-serif}
+#hud{
+ position:absolute;top:0;left:0;width:100%;
+ color:#fff;padding:10px;z-index:5
+}
+#hp{width:120px;height:8px;background:#333}
+#hpbar{height:100%;background:#0f0}
+#mission{font-size:12px;margin-top:5px}
+#centerMsg{
+ position:absolute;top:50%;left:50%;
+ transform:translate(-50%,-50%);
+ color:#0ff;font-size:20px;display:none
+}
+button{padding:6px;border:none;border-radius:6px}
+</style>
+
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+
+</head>
+<body>
+
+<div id="hud">
+Score: <span id="score">0</span> |
+Coin: <span id="coin">0</span>
+<div id="hp"><div id="hpbar"></div></div>
+<div id="mission"></div>
+</div>
+
+<div id="centerMsg"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/loaders/GLTFLoader.js"></script>
+
+<script>
+// ===== BASIC =====
+let scene=new THREE.Scene();
+let camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+let renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(1.5,window.devicePixelRatio));
+document.body.appendChild(renderer.domElement);
+
+// ===== LIGHT =====
+let light=new THREE.HemisphereLight(0xffffff,0x444444,1.2);
+scene.add(light);
+
+// ===== ROAD =====
+let road=new THREE.Mesh(
+ new THREE.PlaneGeometry(12,500),
+ new THREE.MeshStandardMaterial({color:0x222222})
+);
+road.rotation.x=-Math.PI/2;
+scene.add(road);
+
+// ===== PLAYER + ANIMATION BLEND =====
+let player,mixer,actions={},currentAction;
+let loader=new THREE.GLTFLoader();
+
+// 👉 thay model Mixamo của bạn (có Run/Jump/Slide)
+loader.load("your-model.glb",(gltf)=>{
+ player=gltf.scene;
+ player.scale.set(1.2,1.2,1.2);
+ scene.add(player);
+
+ mixer=new THREE.AnimationMixer(player);
+
+ gltf.animations.forEach(a=>{
+  actions[a.name]=mixer.clipAction(a);
+ });
+
+ playAction("Run");
+});
+
+function playAction(name){
+ if(!actions[name]) return;
+ let next=actions[name];
+ if(currentAction!==next){
+   currentAction?.fadeOut(0.2);
+   next.reset().fadeIn(0.2).play();
+   currentAction=next;
+ }
+}
+
+// ===== SOUND =====
+let sounds={
+ jump:new Audio("https://assets.mixkit.co/sfx/preview/mixkit-player-jumping-2073.mp3"),
+ slide:new Audio("https://assets.mixkit.co/sfx/preview/mixkit-fast-small-sweep-transition-166.mp3"),
+ hit:new Audio("https://assets.mixkit.co/sfx/preview/mixkit-arcade-retro-changing-tab-206.wav")
+};
+
+// ===== CONTROL =====
+let lane=0,targetX=0;
+function updateLane(){
+ targetX=lane*2.5;
+ if(player) player.position.x += (targetX-player.position.x)*0.2;
+}
+
+document.addEventListener("keydown",e=>{
+ if(e.key==="ArrowLeft") lane=Math.max(-1,lane-1);
+ if(e.key==="ArrowRight") lane=Math.min(1,lane+1);
+
+ if(e.key==="ArrowUp"){
+  playAction("Jump");
+  sounds.jump.play();
+  setTimeout(()=>playAction("Run"),600);
+ }
+
+ if(e.key==="ArrowDown"){
+  playAction("Slide");
+  sounds.slide.play();
+  setTimeout(()=>playAction("Run"),600);
+ }
+});
+
+// ===== GAME =====
+let score=0,coin=0,hp=100;
+
+// ===== OBSTACLE =====
+let obs=[];
+function spawn(){
+ let o=new THREE.Mesh(
+  new THREE.BoxGeometry(),
+  new THREE.MeshBasicMaterial({color:0xff00ff})
+ );
+ o.position.set((Math.random()-0.5)*6,0,-80);
+ scene.add(o);
+ obs.push(o);
+}
+
+// ===== DAILY MISSIONS =====
+let missions=[
+ {text:"Score 30",goal:30,done:false},
+ {text:"Collect 50 coin",goal:50,done:false},
+ {text:"Play 1 game",goal:1,done:false}
+];
+
+function updateMission(){
+ let html="";
+ missions.forEach(m=>{
+  html+= (m.done?"✔ ":"✖ ")+m.text+"<br>";
+ });
+ document.getElementById("mission").innerHTML=html;
+}
+updateMission();
+
+// ===== REWARD ADS =====
+function showReward(){
+ let ok=confirm("Xem quảng cáo để revive?");
+ if(ok){
+   hp=50;
+ }
+}
+
+// ===== LOOP =====
+let clock=new THREE.Clock();
+function animate(){
+ requestAnimationFrame(animate);
+
+ let dt=clock.getDelta();
+ if(mixer) mixer.update(dt);
+
+ updateLane();
+
+ obs.forEach((o,i)=>{
+  o.position.z+=0.8;
+
+  if(player && Math.abs(o.position.z-player.position.z)<1 &&
+     Math.abs(o.position.x-player.position.x)<1){
+      hp-=20;
+      sounds.hit.play();
+      if(hp<=0){
+        showReward();
+      }
+  }
+
+  if(o.position.z>5){
+    scene.remove(o);
+    obs.splice(i,1);
+    score++; coin++;
+  }
+ });
+
+ if(score>=30) missions[0].done=true;
+ if(coin>=50) missions[1].done=true;
+
+ updateMission();
+
+ document.getElementById("score").innerText=score;
+ document.getElementById("coin").innerText=coin;
+ document.getElementById("hpbar").style.width=hp+"%";
+
+ if(Math.random()<0.03) spawn();
+
+ renderer.render(scene,camera);
+}
+animate();
+</script>
+</body>
+</html>
